@@ -1,0 +1,12 @@
+.agent/
+.env*
+!.env.example
+node_modules/
+__pycache__/
+dist/
+.venv/
+venv/
+.pytest_cache/
+coverage/
+test-results/
+playwright-report/
