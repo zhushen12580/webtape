@@ -235,3 +235,23 @@ test('story 6b: Wait timeout fails with line number and keeps the old file', () 
   expect(r.stderr).toContain('missing.tape:4: Wait failed: "#missing" not visible within 1s');
   expect(readFileSync(join(dir, 'keep.gif'), 'utf8')).toBe('old\r\n');
 });
+test('Scroll eases a container and then the page', () => {
+  const dir = tmpDir(); copyFixture('scroll.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto scroll.html', 'Scroll "#box" 200', 'Scroll 300 1s']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 't.gif'));
+  expect(g.frames).toBe(30);
+  expect(g.pixel(4, 50, 50)).toEqual([255, 255, 255]);          // 第 5 帧：ease(0.5) 对应滚动 100px
+  expect(g.pixel(4, 50, 150)[0]).toBeGreaterThan(200);
+  expect(g.pixel(9, 50, 50)[0]).toBeGreaterThan(200);            // 容器滚到底：红色
+  expect(g.pixel(9, 500, 600)).toEqual([255, 255, 255]);        // 页面还没滚动
+  expect(g.pixel(29, 500, 600)[2]).toBeGreaterThan(200);         // 页面滚动 300px 后 #below 可见
+});
+test('negative Scroll goes back up', () => {
+  const dir = tmpDir(); copyFixture('scroll.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto scroll.html', 'Scroll 300', 'Scroll -300']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 't.gif'));
+  expect(g.pixel(9, 500, 600)[2]).toBeGreaterThan(200);
+  expect(g.pixel(19, 500, 600)).toEqual([255, 255, 255]);
+});

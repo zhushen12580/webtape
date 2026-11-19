@@ -129,7 +129,21 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
             break;
           }
           case 'Wait': await visible(step.selector, step.timeoutMs); break;
-          default: throw new StepError(step.line, step.kind, 'not supported yet');
+          case 'Scroll': {
+            const el = step.selector ? await visible(step.selector, SELECTOR_TIMEOUT_MS) : null;
+            // The browser clamps top to the scrollable range.
+            const scrollTo = (top: number) => el
+              ? el.evaluate((e, top) => e.scrollTo({ top, behavior: 'instant' }), top)
+              : page.evaluate(top => window.scrollTo({ top, behavior: 'instant' }), top);
+            const start = await (el ? el.evaluate(e => e.scrollTop) : page.evaluate(() => window.scrollY));
+            const n = step.frames;
+            if (n === 0) await scrollTo(start + step.pixels);
+            for (let i = 1; i <= n; i++) {
+              await scrollTo(start + easeInOut(i / n) * step.pixels);
+              await capture();
+            }
+            break;
+          }
         }
       } catch (e) {
         throw e instanceof StepError ? e : new StepError(step.line, step.kind, cleanMessage(e));
