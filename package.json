@@ -21,6 +21,7 @@
     "dev": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && vitest run",
+    "test:install": "npm run build && node --test test/install.acceptance.mjs",
     "coverage": "vitest run --coverage test/tape.test.ts test/shared.test.ts",
     "demo": "npm run build && node dist/cli.js run templates/demo.tape -o docs/demo.gif"
   },

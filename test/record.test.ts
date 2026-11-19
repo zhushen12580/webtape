@@ -55,3 +55,8 @@ test('resolveGotoTarget resolves local files against the tape directory', () => 
   expect(() => resolveGotoTarget('nope.html', dir)).toThrow(`file not found: ${join(dir, 'nope.html')}`);
   expect(() => resolveGotoTarget('localhost:3000', dir)).toThrow('did you mean http://localhost:3000 ?');
 });
+test('a sandbox launch failure says the sandbox stays on, without installing', async () => {
+  const { calls, d } = deps([new Error('browserType.launch: Target page, context or browser has been closed\nBrowser logs:\n[pid=1][err] No usable sandbox!')]);
+  await expect(launchBrowser(d)).rejects.toThrow(/Chromium could not start with its sandbox enabled.*AppArmor/);
+  expect(calls.install).toBe(0);
+});

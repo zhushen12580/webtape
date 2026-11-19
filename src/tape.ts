@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { Format, Theme } from './shared';
 
 export const COMMANDS = ['Output', 'Viewport', 'Set', 'Goto', 'Click', 'Type', 'Press', 'Scroll', 'Wait', 'Sleep'] as const;
@@ -66,7 +67,7 @@ export type ParseResult = { ok: true; script: Script } | { ok: false; errors: Ta
 
 type Command = (typeof COMMANDS)[number];
 type Fail = (message: string) => undefined;
-interface State { settings: Settings; outputs: OutputDecl[]; steps: Step[]; seen: Set<string>; sawAction: boolean }
+interface State { settings: Settings; outputs: OutputDecl[]; steps: Step[]; seen: Set<string>; sawAction: boolean; baseDir: string }
 
 const ACTIONS: readonly string[] = ['Goto', 'Click', 'Type', 'Press', 'Scroll', 'Wait', 'Sleep'];
 const THEMES: readonly string[] = ['light', 'dark', 'none'];
@@ -82,6 +83,11 @@ const ARITY: Record<Command, [number, number]> = {
   Type: [1, 1], Press: [1, 1], Scroll: [1, 3], Wait: [1, 2], Sleep: [1, 1],
 };
 
+/** Where an output really goes, for spotting duplicates: resolved, with either slash, ignoring case. */
+export function destinationKey(path: string, baseDir: string): string {
+  return resolve(baseDir, path.replaceAll('\\', '/')).toLowerCase();
+}
+
 export function formatOf(path: string): Format | undefined {
   return /\.(gif|webm|mp4)$/i.exec(path)?.[1].toLowerCase() as Format | undefined;
 }
@@ -96,7 +102,6 @@ export function charsDue(frameIndex: number, frames: number, length: number): nu
 
 const isInt = (s: string, min: number, max: number) => /^-?\d+$/.test(s) && +s >= min && +s <= max;
 const isEven = (s: string, min: number, max: number) => isInt(s, min, max) && +s % 2 === 0;
-const samePath = (a: string, b: string) => a.replaceAll('\\', '/').toLowerCase() === b.replaceAll('\\', '/').toLowerCase();
 const durationOf = (s: string, fail: Fail) => parseDuration(s) ?? fail(`Invalid duration "${s}" (use e.g. 500ms or 1.5s)`);
 
 function unknown(what: string, word: string, candidates: readonly string[]): string {
@@ -110,10 +115,11 @@ export function decodeTape(bytes: Uint8Array): string {
   return new TextDecoder(encoding).decode(bytes);
 }
 
-export function parseTape(source: string): ParseResult {
+/** baseDir is the tape's directory, which relative Output paths are resolved against. */
+export function parseTape(source: string, baseDir = '.'): ParseResult {
   const st: State = {
     settings: { width: 1280, height: 720, fps: 20, theme: 'light', typingSpeedMs: 50 },
-    outputs: [], steps: [], seen: new Set(), sawAction: false,
+    outputs: [], steps: [], seen: new Set(), sawAction: false, baseDir,
   };
   const errors: TapeError[] = [];
   source.replace(/^\uFEFF/, '').split(/\r?\n/).forEach((text, i) => {
@@ -162,7 +168,8 @@ function parseSetup(command: Command, args: string[], line: number, st: State, f
   if (command === 'Output') {
     const format = formatOf(a);
     if (!format) return fail('Output must end with .gif, .webm or .mp4');
-    if (st.outputs.some(o => samePath(o.path, a))) return fail(`Duplicate Output "${a}"`);
+    const key = destinationKey(a, st.baseDir);
+    if (st.outputs.some(o => destinationKey(o.path, st.baseDir) === key)) return fail(`Duplicate Output "${a}"`);
     st.outputs.push({ path: a, format, line });
     return;
   }

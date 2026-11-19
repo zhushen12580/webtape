@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type Locator } from 'playwright';
 import { addressText, easeInOut, rippleAge, type Overlay } from './shared';
 import { charsDue, CLICK_MOVE_MS, formatDuration, framesFor, GOTO_TIMEOUT_MS, SELECTOR_TIMEOUT_MS, type Script } from './tape';
 
@@ -17,7 +17,8 @@ export function installCommand(): { command: string; args: string[] } {
 }
 
 const defaultDeps: LaunchDeps = {
-  launch: () => chromium.launch(),
+  // Tapes open arbitrary URLs, so Chromium keeps its sandbox (Playwright turns it off by default).
+  launch: () => chromium.launch({ chromiumSandbox: true }),
   install: () => {
     const { command, args } = installCommand();
     // Download progress goes to stderr so stdout stays clean.
@@ -29,7 +30,7 @@ const defaultDeps: LaunchDeps = {
 /** Launches headless Chromium, installing it once if the executable is missing. */
 export async function launchBrowser(deps: LaunchDeps = defaultDeps): Promise<Browser> {
   try {
-    return await deps.launch();
+    return await launchSandboxed(deps);
   } catch (e) {
     if (!/Executable doesn't exist/.test(String((e as Error)?.message))) throw e;
   }
@@ -38,7 +39,18 @@ export async function launchBrowser(deps: LaunchDeps = defaultDeps): Promise<Bro
     const { command, args } = installCommand();
     throw new Error(`Chromium installation failed. Install it manually with:\n  "${command}" "${args[0]}" install chromium --only-shell`);
   }
-  return deps.launch();
+  return launchSandboxed(deps);
+}
+
+// The texts Playwright and Chromium use when the sandbox cannot start.
+const SANDBOX_FAILURE = /sandboxing failed|No usable sandbox|crbug\.com\/(357670|638180)/;
+
+function launchSandboxed(deps: LaunchDeps): Promise<Browser> {
+  return deps.launch().catch((e: unknown) => {
+    if (!SANDBOX_FAILURE.test(String((e as Error)?.message))) throw e;
+    throw new Error('Chromium could not start with its sandbox enabled. WebTape keeps the sandbox on because tapes '
+      + 'open arbitrary pages, so run it as a regular (non-root) user on a system that supports the Chromium sandbox.');
+  });
 }
 
 export interface FrameSink { addFrame(png: Buffer, overlay: Overlay): Promise<void> }
@@ -61,6 +73,22 @@ export function resolveGotoTarget(arg: string, tapeDir: string): string {
   if (existsSync(abs)) return pathToFileURL(abs).href;
   const hint = /^[\w.-]+:\d+(\/|$)/.test(arg) ? `; did you mean http://${arg} ?` : '';
   throw new Error(`file not found: ${abs}${hint}`);
+}
+
+/** Waits up to the selector timeout for the element to be on top at the point; returns what covers it, if anything. */
+async function coveredBy(el: Locator, point: { x: number; y: number }): Promise<string> {
+  const hitTest = () => el.evaluate((e, { x, y }) => {
+    const hit = (e.getRootNode() as Document | ShadowRoot).elementFromPoint(x, y);
+    if (hit && e.contains(hit)) return '';
+    return hit ? `<${hit.tagName.toLowerCase()}${hit.id ? `#${hit.id}` : ''}${[...hit.classList].map(c => `.${c}`).join('')}>` : 'nothing';
+  }, point);
+  const end = Date.now() + SELECTOR_TIMEOUT_MS;
+  let blocker = await hitTest();
+  while (blocker && Date.now() < end) {
+    await el.page().waitForTimeout(100);
+    blocker = await hitTest();
+  }
+  return blocker;
 }
 
 /** Plays the script in a fresh context, sending each frame to the sink. */
@@ -121,6 +149,12 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
               cursor = { x: start.x + (target.x - start.x) * t, y: start.y + (target.y - start.y) * t };
               await page.mouse.move(cursor.x, cursor.y);
               await capture();
+            }
+            // The real click lands on whatever is on top at that point, so it must be the target.
+            const blocker = await coveredBy(el, target);
+            if (blocker) {
+              const at = `(${Math.round(target.x)}, ${Math.round(target.y)})`;
+              throw new Error(`"${step.selector}" is covered by ${blocker} at ${at} and would not receive the click`);
             }
             await page.mouse.down();
             await page.mouse.up();

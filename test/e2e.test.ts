@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { copyFixture, readGif, readVideo, ROOT, runCli, tmpDir, writeTape } from './helpers';
@@ -360,4 +360,52 @@ test('story 5: CSS and text= selectors, Wait and Scroll give 89 frames', () => {
   expect(r.code).toBe(0);
   const g = readGif(join(dir, 'flow.gif'));
   expect([g.width, g.height, g.frames]).toEqual([1280, 760, 89]);
+});
+
+test('a failed write keeps every previous output and leaves nothing new', () => {
+  const dir = tmpDir(); writeFileSync(join(dir, 'keep.gif'), 'old'); mkdirSync(join(dir, 'blocked.gif'));
+  writeTape(dir, 't.tape', ['Output keep.gif', 'Output blocked.gif', 'Viewport 320 200', 'Goto about:blank', 'Sleep 50ms']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain('blocked.gif: it is a directory');
+  expect(readFileSync(join(dir, 'keep.gif'), 'utf8')).toBe('old');
+  expect(readdirSync(dir).sort()).toEqual(['blocked.gif', 'keep.gif', 't.tape']);
+});
+test('Chromium runs with its sandbox on', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Goto about:blank', 'Sleep 50ms']);
+  const r = runCli(['run', 't.tape'], { cwd: dir, env: { DEBUG: 'pw:browser' } });
+  expect(r.code).toBe(0);
+  expect(r.stderr).toContain('<launching>');
+  expect(r.stderr).not.toContain('--no-sandbox');
+});
+test('Click fails with the line number when another element covers the target', () => {
+  const dir = tmpDir(); copyFixture('covered.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto covered.html', 'Click "#target"']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain('t.tape:3: Click failed: "#target" is covered by <div.veil> at (200, 130)');
+  expect(existsSync(join(dir, 't.gif'))).toBe(false);
+});
+test('Click waits for a covering element to go away, then really clicks', () => {
+  const dir = tmpDir(); copyFixture('covered.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto covered.html', 'Click "#soon"', 'Wait "text=Clicked" 100ms']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+});
+test('Click accepts a hit on the enclosing button or on the label of the target', () => {
+  const dir = tmpDir(); copyFixture('covered.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto covered.html', 'Click ".icon"', 'Wait "text=Closed" 100ms', 'Click "#agree"', 'Wait "text=Agreed" 100ms']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.stderr).not.toContain('failed');
+  expect(r.code).toBe(0);
+});
+test('duplicate destinations are rejected before recording', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Output alias.gif', 'Output ./alias.gif', 'Goto about:blank', 'Sleep 50ms']);
+  const a = runCli(['run', 't.tape'], { cwd: dir });
+  expect(a.code).toBe(1);
+  expect(a.stderr).toBe('t.tape:2: Duplicate Output "./alias.gif"\n');
+  const b = runCli(['run', 't.tape', '-o', 'alias.gif', '-o', './alias.gif'], { cwd: dir });
+  expect(b.code).toBe(2);
+  expect(b.stderr).toContain('duplicate -o "./alias.gif"');
+  expect(b.stderr).not.toContain('Recording');
+  expect(existsSync(join(dir, 'alias.gif'))).toBe(false);
 });

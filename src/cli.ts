@@ -6,7 +6,7 @@ import type { Browser } from 'playwright';
 import { launchBrowser, recordScript, StepError } from './record';
 import { formatBytes, outputSize } from './shared';
 import { openStudio, writeOutputs } from './studio';
-import { decodeTape, formatOf, parseTape } from './tape';
+import { decodeTape, destinationKey, formatOf, parseTape } from './tape';
 
 const USAGE = `Usage:
   webtape init [--force]                     Write demo.tape and demo.html to the current directory
@@ -84,6 +84,10 @@ function usageError(reason: string): number {
 async function run(tapeArg: string, outputs: string[]): Promise<number> {
   const bad = outputs.find(o => !formatOf(o));
   if (bad !== undefined) return usageError(`unsupported output "${bad}" (use .gif, .webm or .mp4)`);
+  const cwd = process.cwd();
+  const keys = outputs.map(o => destinationKey(o, cwd));
+  const dup = keys.findIndex((k, i) => keys.indexOf(k) !== i);
+  if (dup >= 0) return usageError(`duplicate -o "${outputs[dup]}" (same file as an earlier -o)`);
   let source: string;
   try {
     source = decodeTape(readFileSync(tapeArg));
@@ -91,7 +95,8 @@ async function run(tapeArg: string, outputs: string[]): Promise<number> {
     process.stderr.write(`Cannot read ${tapeArg}: ${(err as Error).message}\n`);
     return 1;
   }
-  const result = parseTape(source);
+  const tapeDir = dirname(resolve(tapeArg));
+  const result = parseTape(source, tapeDir);
   if (!result.ok) {
     process.stderr.write(result.errors.map(e => `${tapeArg}:${e.line}: ${e.message}\n`).join(''));
     return 1;
@@ -100,8 +105,6 @@ async function run(tapeArg: string, outputs: string[]): Promise<number> {
   const { totalFrames, settings: { width, height, fps, theme } } = script;
   const seconds = (totalFrames / fps).toFixed(2);
   process.stderr.write(`Recording ${tapeArg} -> ${totalFrames} frames (${seconds}s @ ${fps} fps)\n`);
-  const cwd = process.cwd();
-  const tapeDir = dirname(resolve(tapeArg));
   const paths = outputs.length ? outputs.map(o => resolve(cwd, o))
     : script.outputs.length ? script.outputs.map(o => resolve(tapeDir, o.path))
     : [join(tapeDir, basename(tapeArg, extname(tapeArg)) + '.gif')];

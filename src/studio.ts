@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Browser } from 'playwright';
@@ -35,10 +35,41 @@ export async function openStudio(
   };
 }
 
-/** Called only after every output encoded, so a failed run never touches existing files. */
+/**
+ * Called only after every output encoded. Writes each file next to its target first, then swaps them in,
+ * moving old files aside; if any step fails, the old files come back and nothing new is left behind.
+ */
 export function writeOutputs(files: Array<{ path: string; bytes: Buffer }>): void {
-  for (const f of files) {
-    mkdirSync(dirname(f.path), { recursive: true });
-    writeFileSync(f.path, f.bytes);
+  const undo: Array<() => void> = [];
+  const backups: string[] = [];
+  try {
+    const staged = files.map(({ path, bytes }) => {
+      if (statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Cannot write ${path}: it is a directory`);
+      const created = mkdirSync(dirname(path), { recursive: true });
+      if (created) undo.push(() => rmSync(created, { recursive: true, force: true }));
+      const tmp = `${path}.${process.pid}.tmp`;
+      writeFileSync(tmp, bytes, { flag: 'wx' });
+      undo.push(() => rmSync(tmp, { force: true }));
+      return { tmp, path };
+    });
+    for (const { tmp, path } of staged) {
+      if (existsSync(path)) {
+        const backup = `${path}.${process.pid}.bak`;
+        renameSync(path, backup);
+        backups.push(backup);
+        undo.push(() => renameSync(backup, path));
+      } else {
+        undo.push(() => rmSync(path, { force: true }));
+      }
+      renameSync(tmp, path);
+    }
+  } catch (e) {
+    const failed: string[] = [];
+    for (const step of undo.toReversed()) {
+      try { step(); } catch (u) { failed.push(cleanMessage(u)); }
+    }
+    if (failed.length) throw new Error(`${cleanMessage(e)} (rollback also failed: ${failed.join('; ')})`);
+    throw e;
   }
+  for (const backup of backups) rmSync(backup, { force: true });
 }

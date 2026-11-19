@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import {
   COMMANDS, SETTINGS, charsDue, decodeTape, editDistance, formatDuration, framesFor, parseDuration, parseTape, suggest, tokenize,
@@ -147,6 +149,17 @@ test.each([
 test('Output anywhere, duplicates rejected case-insensitively', () => {
   expect(ok('Goto x\nSleep 1s\nOutput a.gif').outputs).toHaveLength(1);
   expect(errs('Output out/A.gif\nOutput out\\a.GIF\nGoto x\nSleep 1s')[0]).toMatchObject({ line: 2, message: 'Duplicate Output "out\\a.GIF"' });
+});
+test('duplicate Output compares resolved destinations, not spellings', () => {
+  const dir = join(tmpdir(), 'tapes');
+  const dup = (a: string, b: string) => {
+    const r = parseTape(`Output ${a}\nOutput ${b}\nGoto x\nSleep 1s`, dir);
+    expect(r.ok ? [] : r.errors).toEqual([{ line: 2, message: `Duplicate Output "${b}"` }]);
+  };
+  dup('alias.gif', './alias.gif');
+  dup('alias.gif', 'sub/../alias.gif');
+  dup('alias.gif', join(dir, 'alias.gif'));
+  expect(parseTape('Output a/x.gif\nOutput b/x.gif\nGoto x\nSleep 1s', dir).ok).toBe(true);
 });
 test('ordering rules', () => {
   expect(errs('Goto x\nViewport 800 600\nSleep 1s')[0]).toEqual({ line: 2, message: 'Viewport must come before the first action command' });

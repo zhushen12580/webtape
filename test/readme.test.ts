@@ -30,3 +30,11 @@ test('docs/demo.gif is the recorded template', () => {
   expect([g.width, g.height, g.frames]).toEqual([1280, 760, 148]);
   expect(g.size).toBeLessThanOrEqual(5 * 1024 * 1024);
 });
+
+test('README states the CLI Node minimum and, separately, the Node versions the test runner supports', () => {
+  const vitestNode = JSON.parse(readFileSync(join(ROOT, 'node_modules', 'vitest', 'package.json'), 'utf8')).engines.node;
+  const cliNode = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).engines.node;
+  expect(cliNode).toBe('>=20');
+  expect(readme).toContain('The CLI needs Node.js 20 or newer.');
+  expect(readme).toContain(`\`${vitestNode}\``);
+});
