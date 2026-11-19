@@ -20,7 +20,8 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && vitest run"
+    "test": "npm run build && vitest run",
+    "coverage": "vitest run --coverage test/tape.test.ts test/shared.test.ts"
   },
   "dependencies": {
     "playwright": "^1.65.1"
