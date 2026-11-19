@@ -167,3 +167,30 @@ test('unknown key is a runtime error with the line number', () => {
   expect(r.code).toBe(1);
   expect(r.stderr).toMatch(/t\.tape:3: Press failed: /);
 });
+
+const themed = (theme: string) => SIZE.map(l => l.startsWith('Set Theme') ? `Set Theme ${theme}` : l);
+test('story 4: dark theme bar is dark, size 800x640', () => {
+  const dir = tmpDir(); writeTape(dir, 'size.tape', themed('dark'));
+  expect(runCli(['run', 'size.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 'size.gif'));
+  expect([g.width, g.height, g.frames]).toEqual([800, 640, 28]);
+  for (const c of g.pixel(0, 400, 3)) expect(c).toBeLessThan(60);
+  for (const c of g.pixel(0, 400, 20)) expect(c).toBeLessThan(80);   // 地址栏
+});
+test('story 4: light theme bar is light with traffic lights', () => {
+  const dir = tmpDir(); writeTape(dir, 'size.tape', themed('light'));
+  expect(runCli(['run', 'size.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 'size.gif'));
+  for (const c of g.pixel(0, 400, 3)) expect(c).toBeGreaterThan(200);
+  for (const c of g.pixel(0, 400, 20)) expect(c).toBeGreaterThanOrEqual(245);  // data: URL 的地址为空
+  const red = g.pixel(0, 20, 20); expect(red[0]).toBeGreaterThan(200); expect(red[1]).toBeLessThan(150);
+});
+test('long address text stays inside the address pill', () => {
+  const dir = tmpDir(); const name = 'a-very-long-file-name-'.repeat(5) + '.html';
+  copyFixture('page.html', dir, name);
+  writeTape(dir, 't.tape', ['Viewport 800 600', `Goto "${name}"`, 'Sleep 100ms']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 't.gif'));
+  const red = g.pixel(0, 20, 20); expect(red[0]).toBeGreaterThan(200); expect(red[1]).toBeLessThan(150);
+  for (const [c, want] of g.pixel(0, 760, 20).map((c, i) => [c, [0xec, 0xec, 0xf0][i]])) expect(Math.abs(c - want)).toBeLessThanOrEqual(8);
+});

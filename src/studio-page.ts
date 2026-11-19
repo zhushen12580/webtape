@@ -1,7 +1,12 @@
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
 import { gifDelayMs, outputSize, TITLEBAR_HEIGHT, type InitOptions, type StudioApi } from './shared';
 
-const BAR_COLORS = { light: '#ececf0', dark: '#2a2a2e' };
+const BAR = {
+  light: { bg: '#ececf0', line: '#d4d4d8', pill: '#ffffff', text: '#4b4b55' },
+  dark: { bg: '#2a2a2e', line: '#151518', pill: '#3a3a40', text: '#d0d0d8' },
+};
+const LIGHTS = ['#ff5f57', '#febc2e', '#28c840'];
+const PILL_X = 88, PILL_Y = 8, PILL_H = 24, PILL_PAD = 10;
 
 let opts: InitOptions;
 let ctx: CanvasRenderingContext2D;
@@ -34,6 +39,40 @@ function encodeGifFrame(): void {
   frame++;
 }
 
+/** Window chrome: traffic lights and an address pill whose text is ellipsized and clipped to the pill. */
+function drawTitleBar(theme: 'light' | 'dark', address: string): void {
+  const c = BAR[theme], w = ctx.canvas.width;
+  ctx.fillStyle = c.bg;
+  ctx.fillRect(0, 0, w, TITLEBAR_HEIGHT);
+  ctx.fillStyle = c.line;
+  ctx.fillRect(0, TITLEBAR_HEIGHT - 1, w, 1);
+  LIGHTS.forEach((color, i) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(20 + 18 * i, 20, 6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  const pillW = w - 2 * PILL_X;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(PILL_X, PILL_Y, pillW, PILL_H, 6);
+  ctx.fillStyle = c.pill;
+  ctx.fill();
+  ctx.clip();
+  ctx.font = '13px system-ui, "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = c.text;
+  let text = address;
+  const chars = [...address];
+  while (chars.length && ctx.measureText(text).width > pillW - 2 * PILL_PAD) {
+    chars.pop();
+    text = chars.join('') + '…';
+  }
+  ctx.fillText(text, w / 2, PILL_Y + PILL_H / 2);
+  ctx.restore();
+}
+
 function toBase64(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -54,12 +93,9 @@ const studio: StudioApi = {
     ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     gif = GIFEncoder();
   },
-  async addFrame(png) {
+  async addFrame(png, overlay) {
     const barH = opts.theme === 'none' ? 0 : TITLEBAR_HEIGHT;
-    if (opts.theme !== 'none') {
-      ctx.fillStyle = BAR_COLORS[opts.theme];
-      ctx.fillRect(0, 0, ctx.canvas.width, barH);
-    }
+    if (opts.theme !== 'none') drawTitleBar(opts.theme, overlay.address);
     const bitmap = await createImageBitmap(await (await fetch('data:image/png;base64,' + png)).blob());
     ctx.drawImage(bitmap, 0, barH);
     bitmap.close();
