@@ -3,6 +3,7 @@ import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ALL_FORMATS, BufferSource, Input } from 'mediabunny';
 import omggif from 'omggif';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,5 +55,14 @@ export function readGif(file: string) {
       const o = (y * gif.width + x) * 4;
       return [rgba[o], rgba[o + 1], rgba[o + 2]];
     },
+  };
+}
+
+export async function readVideo(file: string): Promise<{ width: number; height: number; frames: number; duration: number }> {
+  const input = new Input({ source: new BufferSource(readFileSync(file)), formats: ALL_FORMATS });
+  const track = (await input.getPrimaryVideoTrack())!;
+  return {
+    width: track.displayWidth, height: track.displayHeight,
+    frames: (await track.computePacketStats()).packetCount, duration: await input.computeDuration(),
   };
 }

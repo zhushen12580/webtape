@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import { copyFixture, readGif, ROOT, runCli, tmpDir, writeTape } from './helpers';
+import { copyFixture, readGif, readVideo, ROOT, runCli, tmpDir, writeTape } from './helpers';
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
@@ -254,4 +254,29 @@ test('negative Scroll goes back up', () => {
   const g = readGif(join(dir, 't.gif'));
   expect(g.pixel(9, 500, 600)[2]).toBeGreaterThan(200);
   expect(g.pixel(19, 500, 600)).toEqual([255, 255, 255]);
+});
+
+test('story 3: one recording gives GIF, WebM and MP4 without ffmpeg', async () => {
+  const dir = tmpDir();
+  writeTape(dir, 'formats.tape', ['Output out/a.gif', 'Output out/a.webm', 'Output out/a.mp4', 'Set Framerate 20',
+    'Goto "data:text/html,<h1>Formats</h1>"', 'Sleep 1s']);
+  const r = runCli(['run', 'formats.tape'], { cwd: dir });
+  expect(r.code).toBe(0);
+  const lines = r.stdout.trim().split(/\r?\n/);
+  expect(lines).toHaveLength(3);
+  for (const l of lines) expect(l).toContain('1280x760, 20 frames, 1.00s');
+  const g = readGif(join(dir, 'out', 'a.gif')); expect([g.width, g.height, g.frames]).toEqual([1280, 760, 20]);
+  for (const ext of ['webm', 'mp4']) {
+    const v = await readVideo(join(dir, 'out', `a.${ext}`));
+    expect([v.width, v.height, v.frames]).toEqual([1280, 760, 20]);
+    expect(Math.abs(v.duration - 1)).toBeLessThanOrEqual(0.05);
+  }
+  const mp4 = readFileSync(join(dir, 'out', 'a.mp4')).toString('latin1');
+  expect(mp4.indexOf('moov')).toBeLessThan(mp4.indexOf('mdat'));   // fastStart
+});
+
+test('two outputs of the same format get identical bytes', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Output a.gif', 'Output b.gif', 'Goto "data:text/html,hi"', 'Sleep 100ms']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  expect(readFileSync(join(dir, 'a.gif')).equals(readFileSync(join(dir, 'b.gif')))).toBe(true);
 });

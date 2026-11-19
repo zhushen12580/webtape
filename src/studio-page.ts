@@ -1,5 +1,6 @@
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
-import { gifDelayMs, outputSize, RIPPLE_RADIUS, TITLEBAR_HEIGHT, type InitOptions, type Overlay, type StudioApi } from './shared';
+import { BufferTarget, canEncodeVideo, CanvasSource, Mp4OutputFormat, Output, type OutputFormat, QUALITY_HIGH, WebMOutputFormat } from 'mediabunny';
+import { gifDelayMs, outputSize, RIPPLE_RADIUS, TITLEBAR_HEIGHT, type Format, type InitOptions, type Overlay, type StudioApi } from './shared';
 
 const BAR = {
   light: { bg: '#ececf0', line: '#d4d4d8', pill: '#ffffff', text: '#4b4b55' },
@@ -9,12 +10,17 @@ const LIGHTS = ['#ff5f57', '#febc2e', '#28c840'];
 const PILL_X = 88, PILL_Y = 8, PILL_H = 24, PILL_PAD = 10;
 // Classic arrow, tip at the origin.
 const ARROW = [[0, 0], [0, 17], [4.5, 13], [7.5, 19.5], [10, 18.5], [7, 12], [12.5, 12]];
+const VIDEO = {
+  mp4: { codec: 'avc', name: 'MP4 (H.264)', alt: '.webm', format: () => new Mp4OutputFormat({ fastStart: 'in-memory' }) },
+  webm: { codec: 'vp9', name: 'WebM (VP9)', alt: '.mp4', format: () => new WebMOutputFormat() },
+} as const;
 
 let opts: InitOptions;
 let ctx: CanvasRenderingContext2D;
 let gif: ReturnType<typeof GIFEncoder>;
 let prev: Uint32Array | null = null;
 let frame = 0;
+const videos: Array<{ format: 'webm' | 'mp4'; output: Output<OutputFormat, BufferTarget>; source: CanvasSource }> = [];
 
 /** One GIF frame per logical frame; pixels equal to the previous frame become transparent (dispose = keep). */
 function encodeGifFrame(): void {
@@ -38,7 +44,6 @@ function encodeGifFrame(): void {
     gif.writeFrame(index, w, h, { palette: [...palette, [0, 0, 0]], delay, transparent: true, transparentIndex: t, dispose: 1 });
   }
   prev = px;
-  frame++;
 }
 
 /** Window chrome: traffic lights and an address pill whose text is ellipsized and clipped to the pill. */
@@ -109,14 +114,22 @@ function toBase64(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 
 const studio: StudioApi = {
   async init(o) {
-    // Video formats land in Task 13.
-    const video = o.formats.find(f => f !== 'gif');
-    if (video) throw new Error(`${video} output is not supported yet`);
     opts = o;
+    const size = outputSize(o.width, o.height, o.theme);
     const canvas = document.createElement('canvas');
-    Object.assign(canvas, outputSize(o.width, o.height, o.theme));
+    Object.assign(canvas, size);
     ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     gif = GIFEncoder();
+    for (const format of o.formats) {
+      if (format === 'gif') continue;
+      const v = VIDEO[format];
+      if (!(await canEncodeVideo(v.codec, size))) throw new Error(`${v.name} encoding is not supported by this Chromium build; use ${v.alt} or .gif`);
+      const output = new Output({ format: v.format(), target: new BufferTarget() });
+      const source = new CanvasSource(canvas, { codec: v.codec, quality: QUALITY_HIGH });
+      output.addVideoTrack(source, { frameRate: o.fps });
+      await output.start();
+      videos.push({ format, output, source });
+    }
   },
   async addFrame(png, overlay) {
     const barH = opts.theme === 'none' ? 0 : TITLEBAR_HEIGHT;
@@ -125,11 +138,21 @@ const studio: StudioApi = {
     ctx.drawImage(bitmap, 0, barH);
     bitmap.close();
     drawOverlay(overlay, barH);
-    encodeGifFrame();
+    if (opts.formats.includes('gif')) encodeGifFrame();
+    for (const v of videos) await v.source.add(frame / opts.fps, 1 / opts.fps);
+    frame++;
   },
   async finish() {
-    gif.finish();
-    return { gif: await toBase64(gif.bytes()) };
+    const out: Partial<Record<Format, string>> = {};
+    if (opts.formats.includes('gif')) {
+      gif.finish();
+      out.gif = await toBase64(gif.bytes());
+    }
+    for (const v of videos) {
+      await v.output.finalize();
+      out[v.format] = await toBase64(new Uint8Array(v.output.target.buffer!));
+    }
+    return out;
   },
 };
 
