@@ -31,6 +31,13 @@ test('docs/demo.gif is the recorded template', () => {
   expect(g.size).toBeLessThanOrEqual(5 * 1024 * 1024);
 });
 
+test('.env.example documents the optional browser path and that the shell must export it', () => {
+  const env = readFileSync(join(ROOT, '.env.example'), 'utf8');
+  expect(env).toMatch(/^# ?PLAYWRIGHT_BROWSERS_PATH=/m);
+  expect(env).toContain('$env:PLAYWRIGHT_BROWSERS_PATH');
+  expect(env).toContain('export PLAYWRIGHT_BROWSERS_PATH');
+});
+
 test('README states the CLI Node minimum and, separately, the Node versions the test runner supports', () => {
   const vitestNode = JSON.parse(readFileSync(join(ROOT, 'node_modules', 'vitest', 'package.json'), 'utf8')).engines.node;
   const cliNode = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).engines.node;

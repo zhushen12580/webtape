@@ -79,7 +79,9 @@ export function resolveGotoTarget(arg: string, tapeDir: string): string {
 async function coveredBy(el: Locator, point: { x: number; y: number }): Promise<string> {
   const hitTest = () => el.evaluate((e, { x, y }) => {
     const hit = (e.getRootNode() as Document | ShadowRoot).elementFromPoint(x, y);
-    if (hit && e.contains(hit)) return '';
+    // As in Playwright, a hit on the enclosing button or link, or on a label of the target, still reaches it.
+    const target = e.closest('button,a,[role=button],[role=link]') ?? e;
+    if (hit && (target.contains(hit) || target.contains(hit.closest('label')?.control ?? null))) return '';
     return hit ? `<${hit.tagName.toLowerCase()}${hit.id ? `#${hit.id}` : ''}${[...hit.classList].map(c => `.${c}`).join('')}>` : 'nothing';
   }, point);
   const end = Date.now() + SELECTOR_TIMEOUT_MS;
@@ -121,7 +123,12 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
     for (const step of script.steps) {
       try {
         switch (step.kind) {
-          case 'Goto': await page.goto(resolveGotoTarget(step.url, tapeDir), { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS }); break;
+          case 'Goto':
+            await page.goto(resolveGotoTarget(step.url, tapeDir), { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS });
+            // Autofocus happens in the next rendering update, which can come after load; let it land before Type.
+            // A page that navigates away on load destroys this context, and then there is nothing to wait for.
+            await page.evaluate(() => new Promise(r => requestAnimationFrame(r))).catch(() => undefined);
+            break;
           case 'Sleep': for (let i = 0; i < step.frames; i++) await capture(); break;
           case 'Type': {
             const chars = [...step.text];

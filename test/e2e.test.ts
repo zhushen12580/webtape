@@ -159,7 +159,8 @@ test('Type handles Chinese and emoji', () => {
   expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
   const g = readGif(join(dir, 't.gif'));
   expect(g.frames).toBe(2);
-  expect(g.pixel(1, 5, 300)[1]).toBeGreaterThan(200);
+  const lime = g.pixel(1, 5, 300);   // the white background also has green > 200
+  expect(lime[0]).toBeLessThan(60); expect(lime[1]).toBeGreaterThan(200); expect(lime[2]).toBeLessThan(60);
 });
 test('unknown key is a runtime error with the line number', () => {
   const dir = tmpDir(); writeTape(dir, 't.tape', ['Goto "data:text/html,hi"', 'Sleep 100ms', 'Press NotAKey']);

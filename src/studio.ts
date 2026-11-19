@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Browser } from 'playwright';
 import { cleanMessage, type FrameSink } from './record';
 import type { Format, InitOptions, Theme } from './shared';
+import { destinationKey } from './tape';
 
 export interface OutputTarget { path: string; format: Format }
 export interface Studio extends FrameSink { finish(): Promise<Array<{ path: string; bytes: Buffer }>> }
@@ -38,8 +39,14 @@ export async function openStudio(
 /**
  * Called only after every output encoded. Writes each file next to its target first, then swaps them in,
  * moving old files aside; if any step fails, the old files come back and nothing new is left behind.
+ * Once every file is in place the write has succeeded, so a leftover backup only gets a warning.
  */
 export function writeOutputs(files: Array<{ path: string; bytes: Buffer }>): void {
+  const keys = files.map(f => destinationKey(f.path, '.'));
+  for (const [i, key] of keys.entries()) {
+    const inside = keys.findIndex(k => k.startsWith(key + sep));
+    if (inside >= 0) throw new Error(`Cannot write ${files[i].path}: it is a directory in the path of ${files[inside].path}`);
+  }
   const undo: Array<() => void> = [];
   const backups: string[] = [];
   try {
@@ -71,5 +78,11 @@ export function writeOutputs(files: Array<{ path: string; bytes: Buffer }>): voi
     if (failed.length) throw new Error(`${cleanMessage(e)} (rollback also failed: ${failed.join('; ')})`);
     throw e;
   }
-  for (const backup of backups) rmSync(backup, { force: true });
+  for (const backup of backups) {
+    try {
+      rmSync(backup, { force: true });
+    } catch (e) {
+      process.stderr.write(`warning: could not remove ${backup}: ${cleanMessage(e)}\n`);
+    }
+  }
 }

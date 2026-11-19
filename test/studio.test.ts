@@ -29,14 +29,15 @@ test('a directory in the way fails before any file is replaced', () => {
 test('an output inside the path of another output fails cleanly', () => {
   const dir = tmpDir();
   expect(() => writeOutputs([{ path: join(dir, 'out.gif'), bytes }, { path: join(dir, 'out.gif', 'x.gif'), bytes }]))
-    .toThrow(`Cannot write ${join(dir, 'out.gif')}: it is a directory`);
+    .toThrow(`Cannot write ${join(dir, 'out.gif')}: it is a directory in the path of ${join(dir, 'out.gif', 'x.gif')}`);
   expect(readdirSync(dir)).toEqual([]);
 });
 test('a backup that cannot be removed does not fail a finished write', async () => {
   const real = await vi.importActual<typeof import('node:fs')>('node:fs');
   const dir = tmpDir(); const a = join(dir, 'a.gif'); writeFileSync(a, 'old');
   vi.mocked(fs.rmSync).mockImplementation((p, o) => { if (String(p).endsWith('.bak')) throw new Error('EBUSY'); real.rmSync(p, o); });
-  const warn = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  let stderr = '';   // mockRestore() also clears mock.calls, so keep what was written
+  const warn = vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { stderr += String(chunk); return true; });
   try {
     writeOutputs([{ path: a, bytes }]);
   } finally {
@@ -44,7 +45,7 @@ test('a backup that cannot be removed does not fail a finished write', async () 
     warn.mockRestore();
   }
   expect(readFileSync(a, 'utf8')).toBe('new');
-  expect(String(warn.mock.calls[0]?.[0])).toContain('could not remove');
+  expect(stderr).toBe(`warning: could not remove ${a}.${process.pid}.bak: EBUSY\n`);
 });
 test('a failed write removes the directories it created', () => {
   const dir = tmpDir(); writeFileSync(join(dir, 'file'), 'x');

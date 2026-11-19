@@ -57,6 +57,6 @@ test('resolveGotoTarget resolves local files against the tape directory', () => 
 });
 test('a sandbox launch failure says the sandbox stays on, without installing', async () => {
   const { calls, d } = deps([new Error('browserType.launch: Target page, context or browser has been closed\nBrowser logs:\n[pid=1][err] No usable sandbox!')]);
-  await expect(launchBrowser(d)).rejects.toThrow(/Chromium could not start with its sandbox enabled.*AppArmor/);
-  expect(calls.install).toBe(0);
+  await expect(launchBrowser(d)).rejects.toThrow('Chromium could not start with its sandbox enabled. WebTape keeps the sandbox on');
+  expect(calls).toMatchObject({ launch: 1, install: 0 });
 });
