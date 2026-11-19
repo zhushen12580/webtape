@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import type { Browser } from 'playwright';
+import { launchBrowser, recordScript, StepError } from './record';
+import { formatBytes, outputSize } from './shared';
+import { openStudio, writeOutputs } from './studio';
 import { decodeTape, formatOf, parseTape } from './tape';
 
 const USAGE = `Usage:
@@ -10,7 +15,7 @@ const USAGE = `Usage:
   webtape --version | -v
 `;
 
-function main(args: string[]): number {
+async function main(args: string[]): Promise<number> {
   let parsed;
   try {
     parsed = parseArgs({
@@ -52,7 +57,7 @@ function usageError(reason: string): number {
   return 2;
 }
 
-function run(tapeArg: string, outputs: string[]): number {
+async function run(tapeArg: string, outputs: string[]): Promise<number> {
   const bad = outputs.find(o => !formatOf(o));
   if (bad !== undefined) return usageError(`unsupported output "${bad}" (use .gif, .webm or .mp4)`);
   let source: string;
@@ -67,11 +72,38 @@ function run(tapeArg: string, outputs: string[]): number {
     process.stderr.write(result.errors.map(e => `${tapeArg}:${e.line}: ${e.message}\n`).join(''));
     return 1;
   }
-  const { totalFrames, settings: { fps } } = result.script;
-  process.stderr.write(`Recording ${tapeArg} -> ${totalFrames} frames (${(totalFrames / fps).toFixed(2)}s @ ${fps} fps)\n`);
-  // Task 7 replaces this with the real recording.
-  process.stderr.write('Recording is not implemented yet\n');
-  return 1;
+  const { script } = result;
+  const { totalFrames, settings: { width, height, fps, theme } } = script;
+  const seconds = (totalFrames / fps).toFixed(2);
+  process.stderr.write(`Recording ${tapeArg} -> ${totalFrames} frames (${seconds}s @ ${fps} fps)\n`);
+  const cwd = process.cwd();
+  const tapeDir = dirname(resolve(tapeArg));
+  const paths = outputs.length ? outputs.map(o => resolve(cwd, o))
+    : script.outputs.length ? script.outputs.map(o => resolve(tapeDir, o.path))
+    : [join(tapeDir, basename(tapeArg, extname(tapeArg)) + '.gif')];
+  let browser: Browser | undefined;
+  try {
+    browser = await launchBrowser();
+    const studio = await openStudio(browser, { width, height, fps, theme, outputs: paths.map(path => ({ path, format: formatOf(path)! })) });
+    await recordScript(browser, script, tapeDir, studio);
+    const files = await studio.finish();
+    writeOutputs(files);
+    const size = outputSize(width, height, theme);
+    for (const f of files) {
+      process.stdout.write(`Wrote ${displayPath(cwd, f.path)} (${size.width}x${size.height}, ${totalFrames} frames, ${seconds}s, ${formatBytes(f.bytes.length)})\n`);
+    }
+    return 0;
+  } catch (err) {
+    process.stderr.write(err instanceof StepError ? `${tapeArg}:${err.line}: ${err.message}\n` : `${(err as Error).message}\n`);
+    return 1;
+  } finally {
+    await browser?.close();
+  }
 }
 
-process.exitCode = main(process.argv.slice(2));
+function displayPath(cwd: string, abs: string): string {
+  const rel = relative(cwd, abs);
+  return rel.startsWith('..') || isAbsolute(rel) ? abs : rel;
+}
+
+main(process.argv.slice(2)).then(code => { process.exitCode = code; });

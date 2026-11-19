@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import { ROOT, runCli, tmpDir, writeTape } from './helpers';
+import { readGif, ROOT, runCli, tmpDir, writeTape } from './helpers';
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
@@ -68,4 +68,44 @@ test('missing tape file exits 1', () => {
 test('valid tape announces the recording plan on stderr', () => {
   const dir = tmpDir(); writeTape(dir, 'ok.tape', ['Goto "data:text/html,hi"', 'Sleep 1s']);
   expect(runCli(['run', 'ok.tape'], { cwd: dir }).stderr).toContain('Recording ok.tape -> 20 frames (1.00s @ 20 fps)');
+});
+
+const RED = 'Goto "data:text/html,<body style=margin:0;background:red>"';
+test('records a data: URL to GIF with Theme none', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Output a.gif', 'Set Theme none', RED, 'Sleep 1s']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.code).toBe(0);
+  expect(r.stderr).toContain('Recording t.tape -> 20 frames (1.00s @ 20 fps)');
+  expect(r.stdout.trim()).toMatch(/^Wrote a\.gif \(1280x720, 20 frames, 1\.00s, \d+\.\d (KB|MB)\)$/);
+  const g = readGif(join(dir, 'a.gif'));
+  expect([g.width, g.height, g.frames, g.loop]).toEqual([1280, 720, 20, 0]);
+  expect(Math.abs(g.totalDelayMs - 1000)).toBeLessThanOrEqual(10);
+  const [r0, g0, b0] = g.pixel(0, 10, 10);
+  expect(r0).toBeGreaterThan(200); expect(g0).toBeLessThan(60); expect(b0).toBeLessThan(60);
+});
+test('default theme adds a 40px title bar', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Output a.gif', RED, 'Sleep 100ms']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  expect(readGif(join(dir, 'a.gif')).height).toBe(760);
+});
+test('default output is <tape name>.gif next to the tape', () => {
+  const dir = tmpDir(); mkdirSync(join(dir, 'sub')); writeTape(join(dir, 'sub'), 'clip.tape', [RED, 'Sleep 100ms']);
+  const r = runCli(['run', join('sub', 'clip.tape')], { cwd: dir });
+  expect(r.code).toBe(0);
+  expect(existsSync(join(dir, 'sub', 'clip.gif'))).toBe(true);
+  expect(r.stdout).toContain(`Wrote ${join('sub', 'clip.gif')} (`);
+});
+test('-o replaces tape outputs and is relative to cwd', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Output a.gif', RED, 'Sleep 100ms']);
+  expect(runCli(['run', 't.tape', '-o', join('out', 'b.gif')], { cwd: dir }).code).toBe(0);
+  expect(existsSync(join(dir, 'out', 'b.gif'))).toBe(true);
+  expect(existsSync(join(dir, 'a.gif'))).toBe(false);
+});
+test('runtime failure keeps the previous output file', () => {
+  const dir = tmpDir(); writeFileSync(join(dir, 'keep.gif'), 'old');
+  writeTape(dir, 't.tape', ['Output keep.gif', RED, 'Sleep 500ms', 'Goto "http://127.0.0.1:9/"']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.code).toBe(1);
+  expect(r.stderr).toMatch(/t\.tape:4: Goto failed: /);
+  expect(readFileSync(join(dir, 'keep.gif'), 'utf8')).toBe('old');
 });
