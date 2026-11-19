@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium, type Browser } from 'playwright';
 import { addressText, type Overlay } from './shared';
 import { GOTO_TIMEOUT_MS, type Script } from './tape';
@@ -52,6 +54,15 @@ export function cleanMessage(e: unknown): string {
   return String((e as Error)?.message ?? e).split('\n')[0].replace(/^\w+\.\w+: /, '').replace(/^Error: /, '');
 }
 
+/** URLs pass through; anything else is a local file relative to the tape directory. */
+export function resolveGotoTarget(arg: string, tapeDir: string): string {
+  if (/^(https?|file|about|data):/i.test(arg)) return arg;
+  const abs = resolve(tapeDir, arg);
+  if (existsSync(abs)) return pathToFileURL(abs).href;
+  const hint = /^[\w.-]+:\d+(\/|$)/.test(arg) ? `; did you mean http://${arg} ?` : '';
+  throw new Error(`file not found: ${abs}${hint}`);
+}
+
 /** Plays the script in a fresh context, sending each frame to the sink. */
 export async function recordScript(browser: Browser, script: Script, tapeDir: string, sink: FrameSink): Promise<void> {
   const { width, height } = script.settings;
@@ -67,7 +78,7 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
     for (const step of script.steps) {
       try {
         switch (step.kind) {
-          case 'Goto': await page.goto(step.url, { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS }); break;
+          case 'Goto': await page.goto(resolveGotoTarget(step.url, tapeDir), { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS }); break;
           case 'Sleep': for (let i = 0; i < step.frames; i++) await capture(); break;
           default: throw new StepError(step.line, step.kind, 'not supported yet');
         }

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,13 @@ export function runCli(
 export function writeTape(dir: string, name: string, lines: string[]): string {
   const file = join(dir, name);
   writeFileSync(file, lines.join('\n'));
+  return file;
+}
+
+/** Copies test/fixtures/<name> into dir (optionally renamed) and returns the new path. */
+export function copyFixture(name: string, dir: string, as = name): string {
+  const file = join(dir, as);
+  copyFileSync(join(ROOT, 'test', 'fixtures', name), file);
   return file;
 }
 

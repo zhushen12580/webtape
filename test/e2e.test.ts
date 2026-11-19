@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
-import { readGif, ROOT, runCli, tmpDir, writeTape } from './helpers';
+import { copyFixture, readGif, ROOT, runCli, tmpDir, writeTape } from './helpers';
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
@@ -108,4 +108,27 @@ test('runtime failure keeps the previous output file', () => {
   expect(r.code).toBe(1);
   expect(r.stderr).toMatch(/t\.tape:4: Goto failed: /);
   expect(readFileSync(join(dir, 'keep.gif'), 'utf8')).toBe('old');
+});
+
+test('Goto resolves files relative to the tape dir, with spaces and non-ASCII names', () => {
+  const dir = tmpDir(); const sub = join(dir, 'My Demos 演示'); mkdirSync(sub);
+  copyFixture('page.html', sub, '页面 one.html');
+  writeTape(sub, 't.tape', ['Set Theme none', 'Goto "页面 one.html"', 'Sleep 100ms']);
+  const r = runCli(['run', join('My Demos 演示', 't.tape')], { cwd: dir });
+  expect(r.code).toBe(0);
+  expect(readGif(join(sub, 't.gif')).pixel(0, 10, 10)[0]).toBeGreaterThan(200);
+});
+test('Goto accepts an absolute Windows path in single quotes', () => {
+  const dir = tmpDir(); const html = copyFixture('page.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', `Goto '${html}'`, 'Sleep 100ms']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+});
+test('missing local file and host:port hint are runtime errors with line numbers', () => {
+  const dir = tmpDir();
+  writeTape(dir, 'a.tape', ['Output a.gif', 'Goto nope.html', 'Sleep 1s']);
+  const a = runCli(['run', 'a.tape'], { cwd: dir });
+  expect(a.code).toBe(1);
+  expect(a.stderr).toContain('a.tape:2: Goto failed: file not found:');
+  writeTape(dir, 'b.tape', ['Goto localhost:3000', 'Sleep 1s']);
+  expect(runCli(['run', 'b.tape'], { cwd: dir }).stderr).toContain('did you mean http://localhost:3000 ?');
 });
