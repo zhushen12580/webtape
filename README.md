@@ -1,35 +1,37 @@
 # WebTape
 
-VHS for the web: write a browser demo as a plain-text `.tape` script, and one command records it as a GIF, WebM or MP4.
+**VHS for the web.** Write a browser demo as a plain-text `.tape` script, and one command records it as a GIF, WebM or MP4.
 
-![WebTape demo](docs/demo.gif)
+English | [简体中文](README.zh-CN.md)
+
+![WebTape recording its demo page: the cursor glides to the input, types a task, clicks Save and scrolls the page](docs/images/demo.gif)
 
 WebTape recorded the GIF above itself from [`templates/demo.tape`](templates/demo.tape). Run `npm run demo` to record it again.
 
-WebTape drives headless Chromium with Playwright and captures the page one frame at a time. It adds a browser window frame, a fake cursor that glides to each target, a ripple on every click and typing that appears one character at a time. The same tape always gives the same frame count, size and duration. When the UI changes, rerun one command to get a fresh demo. You don't need ffmpeg or any API key.
+## Features
 
-## Install
+- **Demos as code.** A tape is a short text file of steps like `Goto`, `Click`, `Type`, `Press`, `Scroll`, `Wait` and `Sleep`. When the UI changes, edit a line or just rerun it.
+- **Looks like a person used it.** A browser window frame (light or dark) with an address bar, a cursor that eases to each target, a ripple on every click and text typed one character at a time.
+- **Same tape, same video.** The frame count, size and duration come only from the tape, not from how fast your machine or the page is. Time spent in `Wait` is cut out of the video.
+- **GIF, WebM and MP4 from one run.** Everything is encoded inside Chromium, so you don't need ffmpeg or any API key. Chromium downloads itself on the first run.
+- **Made for coding agents.** Errors point to `file:line`, the whole tape is checked before the browser starts, failures exit non-zero, and a failed run never overwrites your last good output.
+- **Safe to publish.** The address bar never shows query strings, hashes or full local paths.
 
-The CLI needs Node.js 20 or newer.
+## Quick start
 
-WebTape is not on npm yet. To use it from source:
+The CLI needs Node.js 20 or newer. WebTape is not on npm yet, so build it from source:
 
 ```
 git clone https://github.com/zhushen12580/webtape.git
 cd webtape
 npm install
 npm run build
+npm link
 ```
 
-After that, run it as `node <path-to-webtape>/dist/cli.js`. You can also run `npm link` once in the repository to get a global `webtape` command. The examples below use `webtape`.
+`npm link` puts a `webtape` command on your PATH. If you skip it, run `node <path-to-webtape>/dist/cli.js` wherever this README says `webtape`. Once it is published, the npm package will be called `webtape-cli` and you'll be able to run `npx webtape-cli` without cloning.
 
-Once it is published, the npm package will be called `webtape-cli` and you'll be able to run `npx webtape-cli` without cloning.
-
-The first run downloads Chromium (about 120 MB) and needs no setup from you. Playwright keeps the download in its default location (`%LOCALAPPDATA%\ms-playwright` on Windows), or in `PLAYWRIGHT_BROWSERS_PATH` if you set it.
-
-Chromium always runs with its sandbox on, because a tape can open any page. If the sandbox can't start (for example when you run as root on Linux), WebTape stops with an error instead of turning the sandbox off.
-
-## Quick start
+Now record your first demo:
 
 ```
 mkdir my-demo
@@ -72,6 +74,10 @@ Sleep 1s
 ```
 
 To record your own app, change the `Goto` line to your page (for example `Goto http://localhost:5173`) and change the steps to match it.
+
+The first run downloads Chromium (about 120 MB) and needs no setup from you. Playwright keeps the download in its default location (`%LOCALAPPDATA%\ms-playwright` on Windows), or in `PLAYWRIGHT_BROWSERS_PATH` if you set it.
+
+Chromium always runs with its sandbox on, because a tape can open any page. If the sandbox can't start (for example when you run as root on Linux), WebTape stops with an error instead of turning the sandbox off.
 
 ## Tape commands
 
@@ -171,6 +177,21 @@ Sleep 1s
 
 You can paste something like this into your agent's instructions: "After finishing a UI change, write a `.tape` that shows it, run `webtape run`, fix any `file:line` errors until it exits 0, and attach the output to the PR."
 
+## How it works
+
+1. **Check.** WebTape parses the whole tape and builds a virtual timeline: a command that takes `d` of video time gets `round(d x fps / 1000)` frames. Any error stops it here, before a browser starts.
+2. **Play.** Playwright opens your page in headless Chromium. For each frame, WebTape runs that frame's slice of the current command (one step of the mouse, the characters that are due, a bit of scrolling) and takes a screenshot. The cursor and ripples are never added to your page's DOM.
+3. **Compose.** A second, internal page in the same Chromium draws every frame on a canvas: the title bar, the screenshot, the click ripples and the cursor.
+4. **Encode.** [gifenc](https://github.com/mattdesl/gifenc) turns the frames into a GIF, and WebCodecs with [mediabunny](https://github.com/Vanilagy/mediabunny) turns them into a WebM or MP4. The files are written only after every output has encoded.
+
+A click up close: the ripple grows and fades under the cursor.
+
+![Close-ups of the cursor during a click: a blue ripple grows under the arrow and fades out](docs/images/click-ripple.png)
+
+Frames from the demo GIF, labeled with their frame numbers. The page takes 1.5 seconds to show `Saved`, but `Wait` adds no frames, so in the video it appears a few frames after the click.
+
+![A grid of frames 0 to 147 from the demo GIF: typing a task, adding it to the list, Saving and Saved, then scrolling](docs/images/demo-frames.png)
+
 ## How it relates to VHS
 
 [charmbracelet/VHS](https://github.com/charmbracelet/vhs) records terminal sessions from `.tape` files, and WebTape borrows the idea for web pages. The commands use the same style (`Output`, `Set Key Value`, `Type`, `Sleep`, PascalCase names), but the command set is built for browsers: `Goto`, `Click`, `Scroll` and `Wait` act on real pages. WebTape is a separate project and is not affiliated with Charm.
@@ -186,7 +207,7 @@ You can paste something like this into your agent's instructions: "After finishi
 - Pages that use ES modules don't work over `file://`. Serve them from your own dev server instead.
 - Only Windows 11 has been tested so far. Linux and macOS are expected to work.
 
-## Development
+## Development and tests
 
 Building works on the same Node.js versions as the CLI. The test runner (Vitest 5) needs a newer Node.js, `^22.12.0 || ^24.0.0 || >=26.0.0`, so use one of those to run `npm test` and `npm run coverage`.
 
@@ -203,7 +224,7 @@ npm run dev
 - `npm test` builds and then runs the unit tests and the end-to-end tests, which use real Chromium.
 - `npm run test:install` checks the first-run install for real. It starts with an empty browser folder, checks that the first recording downloads Chromium (about 120 MB) and that the second one reuses it without installing again.
 - `npm run coverage` reports coverage for the parser and the shared helpers.
-- `npm run demo` records `templates/demo.tape` to `docs/demo.gif`.
+- `npm run demo` records `templates/demo.tape` to `docs/images/demo.gif`.
 - `npm run dev` rebuilds on every change.
 
 ## License
