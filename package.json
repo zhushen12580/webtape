@@ -1,0 +1,39 @@
+{
+  "name": "webtape-cli",
+  "version": "0.1.0",
+  "description": "VHS for the web: write browser demos as .tape scripts and record them to GIF, WebM or MP4.",
+  "type": "module",
+  "bin": {
+    "webtape": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && vitest run"
+  },
+  "dependencies": {
+    "playwright": "^1.65.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/omggif": "^1.0.5",
+    "@vitest/coverage-v8": "^5.1.1",
+    "esbuild": "^0.28.2",
+    "gifenc": "^1.0.3",
+    "mediabunny": "^1.66.1",
+    "omggif": "^1.0.10",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
