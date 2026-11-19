@@ -132,3 +132,38 @@ test('missing local file and host:port hint are runtime errors with line numbers
   writeTape(dir, 'b.tape', ['Goto localhost:3000', 'Sleep 1s']);
   expect(runCli(['run', 'b.tape'], { cwd: dir }).stderr).toContain('did you mean http://localhost:3000 ?');
 });
+
+const SIZE = ['Output size.gif', 'Viewport 800 600', 'Set Framerate 10', 'Set Theme none', 'Set TypingSpeed 200ms',
+  'Goto "data:text/html,<input autofocus>"', 'Type "abcd"', 'Sleep 2s'];
+test('story 4: same tape gives the same size and frame count twice', () => {
+  const dir = tmpDir(); writeTape(dir, 'size.tape', SIZE);
+  for (let i = 0; i < 2; i++) {
+    expect(runCli(['run', 'size.tape'], { cwd: dir }).code).toBe(0);
+    const g = readGif(join(dir, 'size.gif'));
+    expect([g.width, g.height, g.frames]).toEqual([800, 600, 28]);
+  }
+});
+test('Type types real keys and Press presses after typing', () => {
+  const dir = tmpDir(); copyFixture('type.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Set Framerate 10', 'Goto type.html', 'Type "abcd"', 'Press Enter']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 't.gif'));
+  expect(g.frames).toBe(4);
+  expect(g.pixel(0, 5, 300)).toEqual([255, 255, 255]);      // 只输入了 "ab"
+  const lime = g.pixel(1, 5, 300); expect(lime[1]).toBeGreaterThan(200); expect(lime[0]).toBeLessThan(60);
+  const blue = g.pixel(2, 5, 300); expect(blue[2]).toBeGreaterThan(200); expect(blue[0]).toBeLessThan(60);
+});
+test('Type handles Chinese and emoji', () => {
+  const dir = tmpDir(); copyFixture('type.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Set Framerate 10', 'Goto type.html', 'Type "你好🙂"']);
+  expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 't.gif'));
+  expect(g.frames).toBe(2);
+  expect(g.pixel(1, 5, 300)[1]).toBeGreaterThan(200);
+});
+test('unknown key is a runtime error with the line number', () => {
+  const dir = tmpDir(); writeTape(dir, 't.tape', ['Goto "data:text/html,hi"', 'Sleep 100ms', 'Press NotAKey']);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  expect(r.code).toBe(1);
+  expect(r.stderr).toMatch(/t\.tape:3: Press failed: /);
+});

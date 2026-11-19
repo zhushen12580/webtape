@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type Browser } from 'playwright';
 import { addressText, type Overlay } from './shared';
-import { GOTO_TIMEOUT_MS, type Script } from './tape';
+import { charsDue, GOTO_TIMEOUT_MS, type Script } from './tape';
 
 export interface LaunchDeps { launch(): Promise<Browser>; install(): number; log(msg: string): void }
 
@@ -80,6 +80,19 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
         switch (step.kind) {
           case 'Goto': await page.goto(resolveGotoTarget(step.url, tapeDir), { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS }); break;
           case 'Sleep': for (let i = 0; i < step.frames; i++) await capture(); break;
+          case 'Type': {
+            const chars = [...step.text];
+            if (step.frames === 0) await page.keyboard.type(step.text);
+            for (let i = 0, typed = 0; i < step.frames; i++) {
+              while (typed < charsDue(i, step.frames, chars.length)) await page.keyboard.type(chars[typed++]);
+              await capture();
+            }
+            break;
+          }
+          case 'Press':
+            await page.keyboard.press(step.key);
+            for (let i = 0; i < step.frames; i++) await capture();
+            break;
           default: throw new StepError(step.line, step.kind, 'not supported yet');
         }
       } catch (e) {
