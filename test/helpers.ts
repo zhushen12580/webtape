@@ -49,9 +49,13 @@ export function readGif(file: string) {
   return {
     width: gif.width, height: gif.height, frames, loop: gif.loopCount() as number | null, totalDelayMs, size: bytes.length,
     /** Frames are diffs over the previous one (dispose = keep), so blit every frame up to the target. */
-    pixel(frame: number, x: number, y: number): [number, number, number] {
+    rgba(frame: number): Uint8Array {
       const rgba = new Uint8Array(gif.width * gif.height * 4);
       for (let i = 0; i <= frame; i++) gif.decodeAndBlitFrameRGBA(i, rgba);
+      return rgba;
+    },
+    pixel(frame: number, x: number, y: number): [number, number, number] {
+      const rgba = this.rgba(frame);
       const o = (y * gif.width + x) * 4;
       return [rgba[o], rgba[o + 1], rgba[o + 2]];
     },

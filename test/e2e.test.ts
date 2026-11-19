@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { copyFixture, readGif, readVideo, ROOT, runCli, tmpDir, writeTape } from './helpers';
@@ -279,4 +279,63 @@ test('two outputs of the same format get identical bytes', () => {
   const dir = tmpDir(); writeTape(dir, 't.tape', ['Output a.gif', 'Output b.gif', 'Goto "data:text/html,hi"', 'Sleep 100ms']);
   expect(runCli(['run', 't.tape'], { cwd: dir }).code).toBe(0);
   expect(readFileSync(join(dir, 'a.gif')).equals(readFileSync(join(dir, 'b.gif')))).toBe(true);
+});
+
+const DEMO_TAPE_LINES = [
+  '# WebTape demo. Record it with: webtape run demo.tape',
+  'Output demo.gif',
+  'Viewport 1280 720',
+  'Set Framerate 20',
+  'Set Theme light',
+  'Set TypingSpeed 50ms',
+  '',
+  'Goto demo.html',
+  'Wait "#new-todo"',
+  'Sleep 500ms',
+  'Click "#new-todo"',
+  'Type "Record a demo with WebTape"',
+  'Press Enter',
+  'Sleep 500ms',
+  'Click "#save"',
+  'Wait "text=Saved"',
+  'Sleep 1s',
+  'Scroll "#todo-list" 240',
+  'Sleep 500ms',
+  'Scroll 400',
+  'Sleep 1s',
+];
+test('story 1: init writes the demo, refuses to overwrite, --force overwrites', () => {
+  const dir = tmpDir();
+  const a = runCli(['init'], { cwd: dir });
+  expect(a.code).toBe(0);
+  expect(a.stdout).toContain('webtape run demo.tape');
+  expect(readFileSync(join(dir, 'demo.tape'), 'utf8').replace(/\r?\n$/, '').split(/\r?\n/)).toEqual(DEMO_TAPE_LINES);
+  expect(existsSync(join(dir, 'demo.html'))).toBe(true);
+  const before = ['demo.tape', 'demo.html'].map(f => statSync(join(dir, f)).mtimeMs);
+  const b = runCli(['init'], { cwd: dir });
+  expect(b.code).toBe(1);
+  expect(b.stderr).toContain('already exists');
+  expect(b.stderr).toContain('--force');
+  expect(['demo.tape', 'demo.html'].map(f => statSync(join(dir, f)).mtimeMs)).toEqual(before);
+  expect(runCli(['init', '--force'], { cwd: dir }).code).toBe(0);
+});
+
+test('GIF has no stale pixels left behind after a busy scroll', () => {
+  const dir = tmpDir();
+  writeTape(dir, 'ghost.tape', ['Output g.gif', 'Set Theme none', 'Viewport 640 360',
+    'Goto "data:text/html,<body style=margin:0><div style=height:300px;background:linear-gradient(90deg,white,blue,red,yellow,white)></div><div style=height:3000px></div>"',
+    'Sleep 100ms', 'Scroll 1000', 'Sleep 200ms']);
+  expect(runCli(['run', 'ghost.tape'], { cwd: dir }).code).toBe(0);
+  const g = readGif(join(dir, 'g.gif'));
+  const px = new Uint32Array(g.rgba(g.frames - 1).buffer);
+  expect(new Set(px).size).toBe(1);
+});
+
+test('GIF keeps pure white when a near-white is seen first', () => {
+  const dir = tmpDir();
+  writeTape(dir, 'white.tape', ['Output w.gif', 'Set Theme none', 'Viewport 640 360',
+    'Goto "data:text/html,<body style=margin:0><div style=height:10px;background:rgb(248,249,252)></div><div style=height:10px;background:rgb(247,248,251)></div>"',
+    'Sleep 100ms']);
+  expect(runCli(['run', 'white.tape'], { cwd: dir }).code).toBe(0);
+  expect(readGif(join(dir, 'w.gif')).pixel(0, 320, 300)).toEqual([255, 255, 255]);
 });

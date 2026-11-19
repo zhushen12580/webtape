@@ -1,4 +1,4 @@
-import { applyPalette, GIFEncoder, quantize } from 'gifenc';
+import { GIFEncoder, nearestColorIndex, quantize } from 'gifenc';
 import { BufferTarget, canEncodeVideo, CanvasSource, Mp4OutputFormat, Output, type OutputFormat, QUALITY_HIGH, WebMOutputFormat } from 'mediabunny';
 import { gifDelayMs, outputSize, RIPPLE_RADIUS, TITLEBAR_HEIGHT, type Format, type InitOptions, type Overlay, type StudioApi } from './shared';
 
@@ -18,32 +18,53 @@ const VIDEO = {
 let opts: InitOptions;
 let ctx: CanvasRenderingContext2D;
 let gif: ReturnType<typeof GIFEncoder>;
-let prev: Uint32Array | null = null;
+/** The colors a GIF viewer currently shows, packed as 0xRRGGBB. */
+let shown: Uint32Array | null = null;
 let frame = 0;
 const videos: Array<{ format: 'webm' | 'mp4'; output: Output<OutputFormat, BufferTarget>; source: CanvasSource }> = [];
 
-/** One GIF frame per logical frame; pixels equal to the previous frame become transparent (dispose = keep). */
+/**
+ * One GIF frame per logical frame, quantized as a whole; pixels whose quantized color is already on
+ * screen become transparent (dispose = keep). Diffing the shown colors rather than the source pixels
+ * repaints colors a busy earlier palette only approximated, so no ghosts linger after a scroll.
+ */
 function encodeGifFrame(): void {
   const { width: w, height: h } = ctx.canvas;
-  const px = new Uint32Array(ctx.getImageData(0, 0, w, h).data.buffer);
-  const changed = new Uint32Array(px.length);
-  let count = 0;
-  for (let i = 0; i < px.length; i++) if (!prev || px[i] !== prev[i]) changed[count++] = i;
-  const sub = new Uint32Array(count);
-  for (let j = 0; j < count; j++) sub[j] = px[changed[j]];
-  const subBytes = new Uint8Array(sub.buffer);
-  const palette = count ? quantize(subBytes, 255) : [[0, 0, 0]];
-  const subIdx = applyPalette(subBytes, palette);
+  const rgba = ctx.getImageData(0, 0, w, h).data;
+  const palette = quantize(rgba, 255);
+  const index = paletteIndex(rgba, palette);
+  const colors = palette.map(([r, g, b]) => (r << 16) | (g << 8) | b);
   const delay = gifDelayMs(frame, opts.fps);
-  if (!prev) {
-    gif.writeFrame(subIdx, w, h, { palette, delay, repeat: 0 });
-  } else {
-    const t = palette.length;
-    const index = new Uint8Array(px.length).fill(t);
-    for (let j = 0; j < count; j++) index[changed[j]] = subIdx[j];
-    gif.writeFrame(index, w, h, { palette: [...palette, [0, 0, 0]], delay, transparent: true, transparentIndex: t, dispose: 1 });
+  if (!shown) {
+    shown = Uint32Array.from(index, i => colors[i]);
+    gif.writeFrame(index, w, h, { palette, delay, repeat: 0 });
+    return;
   }
-  prev = px;
+  const t = palette.length;
+  for (let i = 0; i < index.length; i++) {
+    const c = colors[index[i]];
+    if (c === shown[i]) index[i] = t;
+    else shown[i] = c;
+  }
+  gif.writeFrame(index, w, h, { palette: [...palette, [0, 0, 0]], delay, transparent: true, transparentIndex: t, dispose: 1 });
+}
+
+/** Palette index + 1 for each 0xRRGGBB already looked up this frame; 0 means not yet. */
+const nearest = new Uint8Array(1 << 24);
+
+/**
+ * Like gifenc's applyPalette, but cached per exact color: applyPalette shares one lookup per RGB555
+ * bin, so pure white takes whatever near-white was seen first in its bin and the page turns tinted.
+ */
+function paletteIndex(rgba: Uint8ClampedArray, palette: number[][]): Uint8Array {
+  nearest.fill(0);
+  const index = new Uint8Array(rgba.length / 4);
+  for (let i = 0, o = 0; i < index.length; i++, o += 4) {
+    const key = (rgba[o] << 16) | (rgba[o + 1] << 8) | rgba[o + 2];
+    if (!nearest[key]) nearest[key] = nearestColorIndex(palette, [rgba[o], rgba[o + 1], rgba[o + 2]]) + 1;
+    index[i] = nearest[key] - 1;
+  }
+  return index;
 }
 
 /** Window chrome: traffic lights and an address pill whose text is ellipsized and clipped to the pill. */

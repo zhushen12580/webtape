@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Browser } from 'playwright';
@@ -46,10 +46,34 @@ async function main(args: string[]): Promise<number> {
     if (rest.length !== 1) return usageError(rest.length ? 'run takes exactly one tape file' : 'missing <file.tape>');
     return run(rest[0], parsed.values.output ?? []);
   }
-  // init lands in Task 14; until then it shares the bare-usage path.
-  if (command !== undefined && command !== 'init') return usageError(`unknown command "${command}"`);
+  if (command === 'init') {
+    if (rest.length) return usageError('init takes no arguments');
+    return init(parsed.values.force ?? false);
+  }
+  if (command !== undefined) return usageError(`unknown command "${command}"`);
   process.stderr.write(USAGE);
   return 2;
+}
+
+const DEMO_FILES = ['demo.tape', 'demo.html'];
+
+function init(force: boolean): number {
+  const existing = force ? undefined : DEMO_FILES.find(f => existsSync(f));
+  if (existing) {
+    process.stderr.write(`${existing} already exists (use --force to overwrite)\n`);
+    return 1;
+  }
+  try {
+    for (const f of DEMO_FILES) {
+      copyFileSync(new URL(`../templates/${f}`, import.meta.url), f);
+      process.stdout.write(`Created ${f}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`${(err as Error).message}\n`);
+    return 1;
+  }
+  process.stdout.write('Next: webtape run demo.tape\n');
+  return 0;
 }
 
 function usageError(reason: string): number {
