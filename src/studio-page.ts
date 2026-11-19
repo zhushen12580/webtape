@@ -1,5 +1,5 @@
 import { applyPalette, GIFEncoder, quantize } from 'gifenc';
-import { gifDelayMs, outputSize, TITLEBAR_HEIGHT, type InitOptions, type StudioApi } from './shared';
+import { gifDelayMs, outputSize, RIPPLE_RADIUS, TITLEBAR_HEIGHT, type InitOptions, type Overlay, type StudioApi } from './shared';
 
 const BAR = {
   light: { bg: '#ececf0', line: '#d4d4d8', pill: '#ffffff', text: '#4b4b55' },
@@ -7,6 +7,8 @@ const BAR = {
 };
 const LIGHTS = ['#ff5f57', '#febc2e', '#28c840'];
 const PILL_X = 88, PILL_Y = 8, PILL_H = 24, PILL_PAD = 10;
+// Classic arrow, tip at the origin.
+const ARROW = [[0, 0], [0, 17], [4.5, 13], [7.5, 19.5], [10, 18.5], [7, 12], [12.5, 12]];
 
 let opts: InitOptions;
 let ctx: CanvasRenderingContext2D;
@@ -73,6 +75,29 @@ function drawTitleBar(theme: 'light' | 'dark', address: string): void {
   ctx.restore();
 }
 
+/** Ripples under the cursor; page coordinates shifted down by the title bar. */
+function drawOverlay({ cursor, ripples }: Overlay, barH: number): void {
+  for (const r of ripples) {
+    ctx.fillStyle = `rgba(37,99,235,${0.45 * (1 - r.age)})`;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y + barH, RIPPLE_RADIUS * r.age, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (!cursor) return;
+  ctx.save();
+  ctx.translate(cursor.x, cursor.y + barH);
+  ctx.beginPath();
+  for (const [x, y] of ARROW) ctx.lineTo(x, y);
+  ctx.closePath();
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.restore();
+}
+
 function toBase64(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -99,6 +124,7 @@ const studio: StudioApi = {
     const bitmap = await createImageBitmap(await (await fetch('data:image/png;base64,' + png)).blob());
     ctx.drawImage(bitmap, 0, barH);
     bitmap.close();
+    drawOverlay(overlay, barH);
     encodeGifFrame();
   },
   async finish() {

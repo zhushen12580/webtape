@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body{margin:0;background:#fff;height:2400px}
+  #mark{position:fixed;left:0;top:0;width:40px;height:40px;background:#fff}
+  #target{position:absolute;left:300px;top:200px;width:200px;height:100px;background:#fff;border:0}
+  #go{position:absolute;left:600px;top:500px}
+  #far{position:absolute;left:300px;top:1800px;width:200px;height:60px}
+  #late{position:absolute;left:600px;top:100px;margin:0}
+</style>
+<div id="mark"></div>
+<button id="target" onclick="mark.style.background='#f00'"></button>
+<button class="dup" style="display:none" onclick="mark.style.background='#00f'">Go</button>
+<button class="dup" id="go" onclick="mark.style.background='#0f0'">Go</button>
+<button id="far" onclick="mark.style.background='#f0f'"></button>
+<p id="late" hidden>Ready</p>
+<script>addEventListener('load', () => setTimeout(() => { late.hidden = false; }, 1500));</script>

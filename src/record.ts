@@ -4,8 +4,8 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type Browser } from 'playwright';
-import { addressText, type Overlay } from './shared';
-import { charsDue, GOTO_TIMEOUT_MS, type Script } from './tape';
+import { addressText, easeInOut, rippleAge, type Overlay } from './shared';
+import { charsDue, CLICK_MOVE_MS, formatDuration, framesFor, GOTO_TIMEOUT_MS, SELECTOR_TIMEOUT_MS, type Script } from './tape';
 
 export interface LaunchDeps { launch(): Promise<Browser>; install(): number; log(msg: string): void }
 
@@ -65,15 +65,30 @@ export function resolveGotoTarget(arg: string, tapeDir: string): string {
 
 /** Plays the script in a fresh context, sending each frame to the sink. */
 export async function recordScript(browser: Browser, script: Script, tapeDir: string, sink: FrameSink): Promise<void> {
-  const { width, height } = script.settings;
+  const { width, height, fps } = script.settings;
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
   try {
     const page = await context.newPage();
     let frameIndex = 0;
+    let cursor: { x: number; y: number } | null = null;
+    let ripples: Array<{ x: number; y: number; clickFrame: number }> = [];
     const capture = async () => {
       const png = await page.screenshot({ type: 'png', caret: 'initial' });
-      await sink.addFrame(png, { cursor: null, ripples: [], address: addressText(page.url()) });
+      ripples = ripples.filter(r => rippleAge(frameIndex, r.clickFrame, fps) <= 1);
+      const live = ripples.map(r => ({ x: r.x, y: r.y, age: rippleAge(frameIndex, r.clickFrame, fps) }));
+      await sink.addFrame(png, { cursor, ripples: live, address: addressText(page.url()) });
       frameIndex++;
+    };
+    // First visible match, not Playwright's strict mode: demo scripts should be forgiving.
+    const visible = async (sel: string, timeout: number) => {
+      const el = page.locator(sel).filter({ visible: true }).first();
+      try {
+        await el.waitFor({ state: 'visible', timeout });
+      } catch (e) {
+        if ((e as Error)?.name === 'TimeoutError') throw new Error(`"${sel}" not visible within ${formatDuration(timeout)}`);
+        throw e;
+      }
+      return el;
     };
     for (const step of script.steps) {
       try {
@@ -93,6 +108,27 @@ export async function recordScript(browser: Browser, script: Script, tapeDir: st
             await page.keyboard.press(step.key);
             for (let i = 0; i < step.frames; i++) await capture();
             break;
+          case 'Click': {
+            const el = await visible(step.selector, SELECTOR_TIMEOUT_MS);
+            await el.scrollIntoViewIfNeeded();
+            const box = await el.boundingBox();
+            if (!box) throw new Error(`"${step.selector}" has no layout box`);
+            const target = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+            const start: { x: number; y: number } = cursor ?? { x: width / 2, y: height / 2 };
+            const m = framesFor(CLICK_MOVE_MS, fps);
+            for (let i = 1; i <= m; i++) {
+              const t = easeInOut(i / m);
+              cursor = { x: start.x + (target.x - start.x) * t, y: start.y + (target.y - start.y) * t };
+              await page.mouse.move(cursor.x, cursor.y);
+              await capture();
+            }
+            await page.mouse.down();
+            await page.mouse.up();
+            ripples = [...ripples, { ...target, clickFrame: frameIndex }];
+            for (let i = m; i < step.frames; i++) await capture();
+            break;
+          }
+          case 'Wait': await visible(step.selector, step.timeoutMs); break;
           default: throw new StepError(step.line, step.kind, 'not supported yet');
         }
       } catch (e) {

@@ -194,3 +194,44 @@ test('long address text stays inside the address pill', () => {
   const red = g.pixel(0, 20, 20); expect(red[0]).toBeGreaterThan(200); expect(red[1]).toBeLessThan(150);
   for (const [c, want] of g.pixel(0, 760, 20).map((c, i) => [c, [0xec, 0xec, 0xf0][i]])) expect(Math.abs(c - want)).toBeLessThanOrEqual(8);
 });
+
+function clickRun(lines: string[]) {
+  const dir = tmpDir(); copyFixture('click.html', dir);
+  writeTape(dir, 't.tape', ['Set Theme none', 'Goto click.html', ...lines]);
+  const r = runCli(['run', 't.tape'], { cwd: dir });
+  return { r, gif: () => readGif(join(dir, 't.gif')) };
+}
+test('Click moves a cursor, draws a ripple and really clicks', () => {
+  const { r, gif } = clickRun(['Click "#target"']);
+  expect(r.code).toBe(0);
+  const g = gif(); expect(g.frames).toBe(14);
+  expect(g.pixel(0, 402, 258)).toEqual([255, 255, 255]);          // 光标还在画面中央附近
+  for (const c of g.pixel(13, 402, 258)) expect(c).toBeLessThan(80); // 箭头填充色
+  const rip = g.pixel(13, 392, 250);
+  expect(rip).not.toEqual([255, 255, 255]); expect(rip[2] - rip[0]).toBeGreaterThan(20);
+  const mark = g.pixel(13, 20, 20); expect(mark[0]).toBeGreaterThan(200); expect(mark[1]).toBeLessThan(60);
+});
+test('text= selector clicks the first visible match', () => {
+  const { r, gif } = clickRun(['Click "text=Go"']);
+  expect(r.code).toBe(0);
+  const m = gif().pixel(13, 20, 20); expect(m[1]).toBeGreaterThan(200); expect(m[0]).toBeLessThan(60); expect(m[2]).toBeLessThan(60);
+});
+test('Click scrolls an off-screen target into view without extra frames', () => {
+  const { r, gif } = clickRun(['Click "#far"']);
+  expect(r.code).toBe(0);
+  const g = gif(); expect(g.frames).toBe(14);
+  const m = g.pixel(13, 20, 20); expect(m[0]).toBeGreaterThan(200); expect(m[2]).toBeGreaterThan(200); expect(m[1]).toBeLessThan(60);
+});
+test('Wait time is not part of the video', () => {
+  const { r, gif } = clickRun(['Wait "text=Ready"', 'Sleep 500ms']);
+  expect(r.code).toBe(0);
+  expect(gif().frames).toBe(10);
+});
+test('story 6b: Wait timeout fails with line number and keeps the old file', () => {
+  const dir = tmpDir(); writeFileSync(join(dir, 'keep.gif'), 'old\r\n');
+  writeTape(dir, 'missing.tape', ['Output keep.gif', 'Goto "data:text/html,<h1>Hi</h1>"', 'Sleep 500ms', 'Wait "#missing" 1s']);
+  const r = runCli(['run', 'missing.tape'], { cwd: dir });
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain('missing.tape:4: Wait failed: "#missing" not visible within 1s');
+  expect(readFileSync(join(dir, 'keep.gif'), 'utf8')).toBe('old\r\n');
+});
