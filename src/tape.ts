@@ -104,6 +104,12 @@ function unknown(what: string, word: string, candidates: readonly string[]): str
   return `Unknown ${what} "${word}"${s ? `. Did you mean "${s}"?` : ''}`;
 }
 
+// PowerShell 5.1's Out-File and > write UTF-16LE. TextDecoder drops the BOM by default.
+export function decodeTape(bytes: Uint8Array): string {
+  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : 'utf-8';
+  return new TextDecoder(encoding).decode(bytes);
+}
+
 export function parseTape(source: string): ParseResult {
   const st: State = {
     settings: { width: 1280, height: 720, fps: 20, theme: 'light', typingSpeedMs: 50 },

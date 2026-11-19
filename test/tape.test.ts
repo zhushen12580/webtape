@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import {
-  COMMANDS, SETTINGS, charsDue, editDistance, formatDuration, framesFor, parseDuration, parseTape, suggest, tokenize,
+  COMMANDS, SETTINGS, charsDue, decodeTape, editDistance, formatDuration, framesFor, parseDuration, parseTape, suggest, tokenize,
 } from '../src/tape';
 
 test('tokenize splits on whitespace and keeps mid-word # and quotes', () => {
@@ -184,4 +184,8 @@ test('framesFor and charsDue', () => {
   expect([framesFor(500, 20), framesFor(500, 7), framesFor(10, 20), framesFor(700, 1)]).toEqual([10, 4, 0, 1]);
   expect([0, 1, 2, 7].map(i => charsDue(i, 8, 4))).toEqual([1, 1, 2, 4]);
   expect([0, 1].map(i => charsDue(i, 2, 4))).toEqual([2, 4]);
+});
+test('decodeTape handles UTF-8 BOM and UTF-16LE from PowerShell', () => {
+  expect(decodeTape(Buffer.from('\uFEFFGoto x', 'utf8'))).toBe('Goto x');
+  expect(decodeTape(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('Goto x', 'utf16le')]))).toBe('Goto x');
 });

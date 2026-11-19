@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,4 +23,10 @@ export function runCli(
     timeout: 120_000,
   });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, ms: Date.now() - start };
+}
+
+export function writeTape(dir: string, name: string, lines: string[]): string {
+  const file = join(dir, name);
+  writeFileSync(file, lines.join('\n'));
+  return file;
 }
