@@ -339,3 +339,25 @@ test('GIF keeps pure white when a near-white is seen first', () => {
   expect(runCli(['run', 'white.tape'], { cwd: dir }).code).toBe(0);
   expect(readGif(join(dir, 'w.gif')).pixel(0, 320, 300)).toEqual([255, 255, 255]);
 });
+
+const FLOW = ['Output flow.gif', 'Goto demo.html', 'Click "#new-todo"', 'Type "Ship it"', 'Click "text=Add"',
+  'Click "#save"', 'Wait "text=Saved"', 'Sleep 1s', 'Scroll "#todo-list" 200', 'Scroll 300'];
+test('story 2: the template records to 148 frames at 1280x760 within 60s', () => {
+  const dir = tmpDir(); expect(runCli(['init'], { cwd: dir }).code).toBe(0);
+  const r = runCli(['run', 'demo.tape'], { cwd: dir });
+  expect(r.code).toBe(0);
+  expect(r.ms).toBeLessThan(60_000);
+  expect(r.stdout.trim()).toMatch(/^Wrote demo\.gif \(1280x760, 148 frames, 7\.40s, \d+\.\d (KB|MB)\)$/);
+  const g = readGif(join(dir, 'demo.gif'));
+  expect([g.width, g.height, g.frames]).toEqual([1280, 760, 148]);
+  expect(g.size).toBeLessThanOrEqual(5 * 1024 * 1024);
+  for (const c of g.pixel(0, 400, 3)) expect(c).toBeGreaterThan(200);
+});
+test('story 5: CSS and text= selectors, Wait and Scroll give 89 frames', () => {
+  const dir = tmpDir(); expect(runCli(['init'], { cwd: dir }).code).toBe(0);
+  writeTape(dir, 'flow.tape', FLOW);
+  const r = runCli(['run', 'flow.tape'], { cwd: dir });
+  expect(r.code).toBe(0);
+  const g = readGif(join(dir, 'flow.gif'));
+  expect([g.width, g.height, g.frames]).toEqual([1280, 760, 89]);
+});
